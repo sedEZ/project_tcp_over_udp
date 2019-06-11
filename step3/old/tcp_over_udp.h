@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 //Parameters
-#define RTT		    (150)
+#define RTT		    (15)
 #define MSS     	(1024)
 #define THRESHOLD	(65535)
 #define BUFF_SIZE	(32*1024)
@@ -26,7 +26,7 @@
 #define SYN	2
 #define ACK	16
 
-#define LOST_R              (1)
+#define LOST_R              (20)
 #define MAX_NUM_CLIENTS     (200)
 #define HEADER_SIZE         (sizeof(TCP_header))
 #define MAX_DATA_SIZE       (MSS-HEADER_SIZE)

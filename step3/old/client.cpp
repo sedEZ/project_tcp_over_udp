@@ -6,21 +6,14 @@ int client_init(const char*,int,struct sockaddr_in*);
 void reset_code(seg* s);
 void three_way_handshake(int sockfd , int* my_port , struct sockaddr_in* server_addr,int request_c,char** request_v, unsigned int* my_seq_num , unsigned int* my_ack_num,int rwnd);
 void receive_file(int sockfd, int my_port, struct sockaddr_in* server_addr, char* request_file_name,unsigned int* , unsigned int*);
-int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num , char* file_data , int* next_received_bytes , int* rwnd);
-void send_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num , int rwnd);
-
+int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num , char* file_data , int* next_received_bytes);
+int receive_seg_processing(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num , char* file_data , int* next_received_bytes);
 void receive_fin(int sockfd , int my_port , struct sockaddr_in* server_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num);
 void receive_ack(int sockfd , int my_port , struct sockaddr_in* server_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num);
+void send_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num);
 void send_fin(int sockfd  , int my_port, struct sockaddr_in* server_addr , seg* snd_s  , unsigned int* my_seq_num , unsigned int* my_ack_num);
-void send_final_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num);
 
 //Some setting & checking functions
-void set_syn(seg* s);
-void set_ack(seg* s);
-void set_fin(seg* s);
-void reset_seg(seg* s);
-
-void set_syn(seg* s);
 void set_syn(seg* s);
 void set_ack(seg* s);
 void set_fin(seg* s);
@@ -83,7 +76,7 @@ void client(const char* server_ip,int server_port_num,struct sockaddr_in* server
     send_fin(sockfd  , my_port, server_addr , snd_s  , &my_seq_num , &my_ack_num);
     receive_ack(sockfd,my_port ,server_addr , snd_s , rcv_s ,&my_seq_num , &my_ack_num);
     receive_fin(sockfd,my_port ,server_addr , snd_s , rcv_s ,&my_seq_num , &my_ack_num);
-    send_final_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,&my_seq_num, &my_ack_num);
+    send_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,&my_seq_num, &my_ack_num);
     
     printf("Closing connection with %s : %d\n",inet_ntoa(server_addr->sin_addr), ntohs(server_addr->sin_port));
     close(sockfd);
@@ -105,15 +98,29 @@ int client_init(const char* server_ip,int server_port,struct sockaddr_in* server
 }
 
 
+void set_syn(seg* s){
+	s->header.code.S = 1;
+}
+void set_ack(seg* s){
+	s->header.code.A = 1;
+}
+void set_fin(seg* s){
+    s->header.code.F = 1;
+}
 
+void reset_seg(seg* s){
+    bzero(s,sizeof(seg));
+}
 
 void receive_file(int sockfd, int my_port , struct sockaddr_in* server_addr,char* request_file_name,unsigned int* my_seq_num, unsigned int* my_ack_num ){
-    char file_data[BUFF_SIZE] = {0};
-    int next_received_bytes = 0 , rwnd = BUFF_SIZE;
+    char file_data[MAX_FILE_LEN+1];
+    memset(file_data , 0 , MAX_FILE_LEN+1);
+    int next_received_bytes = 0;
 
     char file_name[MAX_FILE_NAME_LEN];
-    (*my_ack_num) = 0;
+    (*my_ack_num) = 1;
     
+    memset(file_data,0,MAX_FILE_LEN+1);
     sprintf(file_name,"%s_result.mp4",request_file_name);
     seg *snd_s = (seg*)malloc(MSS);
     seg *rcv_s = (seg*)malloc(MSS);
@@ -131,7 +138,7 @@ void receive_file(int sockfd, int my_port , struct sockaddr_in* server_addr,char
     printf("Receive file \"%s\" from %s :%d\n",file_name,inet_ntoa(server_addr->sin_addr),ntohs(server_addr->sin_port));
     while(1){
         //Receive seg
-        n = receive_seg(sockfd, my_port, server_addr, fp , snd_s , rcv_s ,my_seq_num, my_ack_num , file_data ,&next_received_bytes , &rwnd);
+        n = receive_seg(sockfd, my_port, server_addr, fp , snd_s , rcv_s ,my_seq_num, my_ack_num , file_data ,&next_received_bytes);
 
         if(n == 1){
             //n == 1 when all the segement of the file are received.
@@ -139,30 +146,30 @@ void receive_file(int sockfd, int my_port , struct sockaddr_in* server_addr,char
         }
         
         //Send ACK
-        send_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,my_seq_num, my_ack_num , rwnd);
+        send_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,my_seq_num, my_ack_num);
+        
         
     }
     //Send final ACK
-    send_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,my_seq_num, my_ack_num , rwnd);
+    send_ack(sockfd, my_port, server_addr, snd_s ,rcv_s ,my_seq_num, my_ack_num);
+    printf("%s" , file_data);
 
-    if(rwnd != BUFF_SIZE)
-        if(fwrite(file_data,sizeof(char), BUFF_SIZE-rwnd ,fp) <= 0 ){
-            ERR_EXIT("Client:receive_file:fwrite");
-        }
+    //Write receive buffer into file 
+    if(fwrite(file_data,sizeof(char), next_received_bytes,fp) <= 0 ){
+        ERR_EXIT("Client:receive_file:fwrite");
+    }
     
 
     printf("===========================================================================\n");
     printf("===================Receive file \"%s\" complete.===================\n",file_name);
     printf("===========================================================================\n");
 
-    free(snd_s);
-    free(rcv_s);
     fclose(fp);
 
 }
 
 //If the segement received had reach to the end , return 1
-int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num ,char file_data[]  , int* next_received_bytes , int* rwnd){
+int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num ,char file_data[]  , int* next_received_bytes){
 
     int n;
     int return_val=0;
@@ -175,7 +182,7 @@ int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* 
     }
     else if(rcv_s->header.seq_num != (*my_ack_num)){
         //If received wrong segement , send ack 
-        return rcv_s->header.code.final_seg;
+        return 0;
     }
     else{
         //Delay ack 
@@ -184,34 +191,21 @@ int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* 
         printf("Receive a packet from %s : %d\n",inet_ntoa(server_addr->sin_addr),ntohs(server_addr->sin_port));
         printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
         
+        (*my_ack_num) = rcv_s->header.seq_num + sizeof(rcv_s->data);
         
-        //Write into file buffer 
-        unsigned int counter;
-        for(counter = 0 ; counter < sizeof(rcv_s->data);counter++){
-            if((*rwnd) == 0){
-                //Write receive buffer into file 
-                if(fwrite(file_data,sizeof(char), BUFF_SIZE ,fp) <= 0 ){
-                    ERR_EXIT("Client:receive_file:fwrite");
-                }
-                for(int k = 0 ;k < BUFF_SIZE ; k ++){
-                    file_data[k] = 0;
-                }
-
-                (*next_received_bytes) = 0;
-                (*rwnd) = BUFF_SIZE;
-            }
-            
-            file_data[(*next_received_bytes)++] = rcv_s->data[counter];
-            (*rwnd)--;
-        }
-        (*my_ack_num) = rcv_s->header.seq_num + counter;
-        
+        //Write into receive buffer
         return_val = rcv_s->header.code.final_seg;
+        //Write into file buffer 
+        for(unsigned int counter = 0 ; counter < sizeof(rcv_s->data) ;counter++){
+            file_data[(*next_received_bytes)+counter] = rcv_s->data[counter];
+        }
+     
+        (*next_received_bytes) += sizeof(rcv_s->data);
         
         if(return_val)return return_val;
-
+/*
         //Setting timeout 
-        struct timeval nTimeOut; // time out = $(DELAY_ACK_TIMEOUT) ms
+        struct timeval nTimeOut; // time out = $(DELAY_ACK_TIMEOUT) ms (default : 500)
         nTimeOut.tv_usec = DELAY_ACK_TIMEOUT*1000;
         nTimeOut.tv_sec = 0;
         if(setsockopt(sockfd,SOL_SOCKET,SO_RCVTIMEO,(char*)&nTimeOut ,sizeof(struct timeval)) == -1){
@@ -221,35 +215,13 @@ int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* 
         //If received segement during delay 
         reset_seg(rcv_s);
         if((n = recvfrom(sockfd,rcv_s,MSS,0,(struct sockaddr*)server_addr,&size))>=0){
-            if((*rwnd) == 0){
-                //Write receive buffer into file 
-                if(fwrite(file_data,sizeof(char), BUFF_SIZE ,fp) <= 0 ){
-                    ERR_EXIT("Client:receive_file:fwrite");
-                }
-                (*rwnd) = BUFF_SIZE;
+            return_val = receive_seg_processing(sockfd, my_port, server_addr, fp , snd_s , rcv_s ,my_seq_num, my_ack_num , file_data ,next_received_bytes);
+            //Write into file buffer 
+            for(unsigned int counter = 0 ; counter < sizeof(rcv_s->data) ;counter++){
+                file_data[(*next_received_bytes)+counter] = rcv_s->data[counter];
             }
-            
-            printf("Receive a packet from %s : %d\n",inet_ntoa(server_addr->sin_addr),ntohs(server_addr->sin_port));
-            printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
-            //Write into buffer
-            for(counter = 0 ; counter < sizeof(rcv_s->data);counter++){
-                if((*rwnd) == 0){
-                    //Write receive buffer into file 
-                    if(fwrite(file_data,sizeof(char), BUFF_SIZE ,fp) <= 0 ){
-                        ERR_EXIT("Client:receive_file:fwrite");
-                    }
-                    for(int k = 0 ;k < BUFF_SIZE ; k ++){
-                        file_data[k] = 0;
-                    }
-                    (*next_received_bytes) = 0;
-                    (*rwnd) = BUFF_SIZE;
-                }
-                file_data[(*next_received_bytes)++] = rcv_s->data[counter];
-                (*rwnd)--;
-            }
-        
-            (*my_ack_num) += counter;
-            return_val = rcv_s->header.code.final_seg;
+     
+            (*next_received_bytes) += sizeof(rcv_s->data);
         }
         
         //Remember to unset timeout 
@@ -259,29 +231,55 @@ int receive_seg(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* 
             ERR_EXIT("Server:setsockopt");
         }
 
+*/ 
         return return_val;
     }
 }
 
+int receive_seg_processing(int sockfd, int my_port, struct sockaddr_in* server_addr, FILE* fp , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num ,char file_data[]  , int* next_received_bytes){
+  
+  
+   // int n;
+    //socklen_t size = sizeof(struct sockaddr_in);
 
-void send_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num, int rwnd){
+    //If the received seq_num is not what I want , resend ack
+    /*
+    while(rcv_s->header.seq_num != (*my_ack_num)){
+        //Resend ack 
+        printf("Resend ack : got %d but need %d\n",rcv_s->header.seq_num , (*my_ack_num));
+        if((n = sendto(sockfd , snd_s , MSS , 0 , (struct sockaddr*)server_addr , size)) < 0){
+            ERR_EXIT("Client:receive_file:recvfrom");
+        }
+        (*my_seq_num)++;
+        
+        if((n = recvfrom(sockfd , rcv_s , MSS , 0 , (struct sockaddr*)server_addr,&size))==-1){
+            ERR_EXIT("Server:receive_seg:recvform");
+        }
+    }
+    */
+  
+        
+    return rcv_s->header.code.final_seg ;
+}
+
+void send_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num){
     int n;
     socklen_t size = sizeof(struct sockaddr_in);
 
     reset_seg(snd_s);
     set_seg(snd_s,my_port,ntohs(server_addr->sin_port),(*my_seq_num),(*my_ack_num));
     set_ack(snd_s);
-    snd_s->header.rcv_win = rwnd;
     
     if((n = sendto(sockfd , snd_s , MSS , 0 , (struct sockaddr*)server_addr , size)) < 0){
         ERR_EXIT("Client:receive_file:recvfrom");
     }
-
-  
+/*
+    if(snd_s->header.ack_num != (*my_seq_num)){
+        ERR_EXIT("Client:send_ack:ack_num not fit");
+    }
+  */
     (*my_seq_num)++;
 }
-
-/*****************************************************************************************************/
 
 void send_fin(int sockfd  , int my_port, struct sockaddr_in* server_addr , seg* snd_s  , unsigned int* my_seq_num , unsigned int* my_ack_num){
     int n ;
@@ -339,24 +337,6 @@ void receive_fin(int sockfd , int my_port , struct sockaddr_in* server_addr , se
 
 }
 
-void send_final_ack(int sockfd, int my_port, struct sockaddr_in* server_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num){
-    int n;
-    socklen_t size = sizeof(struct sockaddr_in);
-
-    reset_seg(snd_s);
-    set_seg(snd_s,my_port,ntohs(server_addr->sin_port),(*my_seq_num),(*my_ack_num));
-    set_ack(snd_s);
-    
-    if((n = sendto(sockfd , snd_s , MSS , 0 , (struct sockaddr*)server_addr , size)) < 0){
-        ERR_EXIT("Client:receive_file:recvfrom");
-    }
-/*
-    if(snd_s->header.ack_num != (*my_seq_num)){
-        ERR_EXIT("Client:send_ack:ack_num not fit");
-    }
-  */
-    (*my_seq_num)++;
-}
 
 void three_way_handshake(int sockfd , int* my_port , struct sockaddr_in* server_addr,int request_c,char** request_v, unsigned int* my_seq_num , unsigned int* my_ack_num , int rwnd){
 	
@@ -419,19 +399,6 @@ void three_way_handshake(int sockfd , int* my_port , struct sockaddr_in* server_
 	
 	printf("=======Complete the three-way handshake======\n");
 	
-}
-void set_syn(seg* s){
-	s->header.code.S = 1;
-}
-void set_ack(seg* s){
-	s->header.code.A = 1;
-}
-void set_fin(seg* s){
-    s->header.code.F = 1;
-}
-
-void reset_seg(seg* s){
-    bzero(s,sizeof(seg));
 }
 int is_syn(seg* s){
 	return (s->header.code.S==1);

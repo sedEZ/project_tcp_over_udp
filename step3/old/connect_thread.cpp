@@ -2,7 +2,7 @@
 
 void    send_files(int sockfd , int*, struct sockaddr_in* client_addr  , seg* snd_s , seg* rcv_s , unsigned int* my_seq_num , unsigned int* my_ack_num);
 int     send_seg(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , unsigned int* my_seq_num , unsigned int* my_ack_num , char file_data[] , int* , int* , unsigned long , unsigned long*);
-int     receive_ack(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num , char file_data[] , int *cwnd, int* rwnd,unsigned int file_len , unsigned long*);
+int receive_ack(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num , char file_data[] , int *cwnd, unsigned int file_len , unsigned long*);
 void    send_ack(int sockfd, int* my_port, struct sockaddr_in* client_addr, seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num, unsigned int* my_ack_num);
 void    receive_fin(int sockfd , int* my_port , struct sockaddr_in* client_addr ,seg* snd_s, seg* rcv_s, unsigned int* my_seq_num , unsigned int* my_ack_num);
 void    send_fin(int sockfd  , int* my_port, struct sockaddr_in* client_addr , seg* snd_s  , unsigned int* my_seq_num , unsigned int* my_ack_num );
@@ -49,8 +49,8 @@ void send_files(int sockfd ,int *my_port ,struct sockaddr_in* client_addr , seg*
             stat(file_name, &st);
 
             
-            //Set seqence number to 0
-            (*my_seq_num) = 0;
+            //Set seqence number to 1
+            (*my_seq_num) = 1;
 
             
             if((fp = fopen(file_name,"rb"))==NULL){
@@ -70,12 +70,17 @@ void send_files(int sockfd ,int *my_port ,struct sockaddr_in* client_addr , seg*
 
                 printf("cwnd = %d , rwnd = %d , threshold = %d\n",cwnd , rwnd , THRESHOLD);
                 //Send seg
-                finish = send_seg(sockfd,my_port ,client_addr , snd_s,my_seq_num , my_ack_num , file_data , &cwnd , &rwnd , file_len, &already_sent_bytes_counter);
+                for(int pipeCounter = 0 ; pipeCounter <= cwnd/MSS ; pipeCounter++){
+                    finish = send_seg(sockfd,my_port ,client_addr , snd_s,my_seq_num , my_ack_num , file_data , &cwnd , &rwnd , file_len, &already_sent_bytes_counter);
                     
-                //Receive ACK
-                resend_finish = receive_ack(sockfd,my_port ,client_addr ,snd_s , rcv_s ,my_seq_num , my_ack_num , file_data , &cwnd, &rwnd, file_len , &max_recv_ack);
+                    if(finish)
+                        break;
+                }
                 
-                //If there is any lost , my_seq_num should decrease back to the maximum already received ACK
+
+                //Receive ACK
+                resend_finish = receive_ack(sockfd,my_port ,client_addr ,snd_s , rcv_s ,my_seq_num , my_ack_num , file_data , &cwnd, file_len , &max_recv_ack);
+                
                 (*my_seq_num) = max_recv_ack;
 
                 if(finish && resend_finish)
@@ -109,107 +114,45 @@ void send_files(int sockfd ,int *my_port ,struct sockaddr_in* client_addr , seg*
     }
 
 }
-
-/**********************************************************************************************************************************************************/
-
 int send_seg(int sockfd  , int* my_port, struct sockaddr_in* client_addr  , seg* snd_s  , unsigned int* my_seq_num , unsigned int* my_ack_num ,char file_data[] ,int* cwnd , int* rwnd , unsigned long file_len , unsigned long *already_sent_bytes_counter){
     int n , finish = 0;
     socklen_t size = sizeof(struct sockaddr_in);
-    for(unsigned int pipeCounter = 0 ; pipeCounter <= (*cwnd)/MAX_DATA_SIZE ; pipeCounter++){
 
-        reset_seg(snd_s);
-        set_seg(snd_s,*my_port,ntohs(client_addr->sin_port),*my_seq_num,*my_ack_num);
-    
-        unsigned int i;
-
-        if((*my_seq_num) >= file_len){
-            set_final_seg(snd_s);
-            finish = 1;
-            //Send segement with final_seg= 1
-            printf("\t\tSend a packet : file-ending segement");
-        }
-        else{
-            printf("\t\tSend a packet at : %d bytes",*my_seq_num);
-        
-            for(i=0 ; i < (unsigned int)(*cwnd) ; i++){
-                snd_s->data[i] = file_data[(*my_seq_num)++];
-            }
-        }
-        //Setting lost 
-        int random_lost = rand()%10000;
-
-        if(random_lost <= LOST_R*100){ //If LOST_R = 5 => 5% lost
-            printf("    **lost");
-            finish = 0;
-        }
-        else if((n = sendto(sockfd,snd_s,MSS,0,(struct sockaddr*)client_addr,size))==-1){
-            ERR_EXIT("Server:new_connection:send_files:sendto");
-        }
-
-        printf("\n");
-
-        if(finish)
-            break;
-    
+    reset_seg(snd_s);
+    set_seg(snd_s,*my_port,ntohs(client_addr->sin_port),*my_seq_num,*my_ack_num);
+    unsigned int i;
+    for(i=0 ; i < (unsigned int)(*cwnd) ; i++){
+        snd_s->data[i] = file_data[(*my_seq_num) + i];
     }
+
+    if(*my_seq_num >= file_len){
+        set_final_seg(snd_s);
+        finish = 1;
+        //Send segement with final_seg= 1
+        printf("\t\tSend a packet : file-ending segement");
+    }
+    else
+        printf("\t\tSend a packet at : %d bytes",*my_seq_num);
     
+    //Setting lost 
+    int random_lost = rand()%10000;
+
+    if(random_lost <= LOST_R*100){ //If LOST_R = 5 => 5% lost
+        printf("    **lost");
+        finish = 0;
+    }
+    else if((n = sendto(sockfd,snd_s,i,0,(struct sockaddr*)client_addr,size))==-1){
+        ERR_EXIT("Server:new_connection:send_files:sendto");
+    }
+
+    printf("\n");
+    
+    (*rwnd) -= (*cwnd);
+    //(*cwnd) *= 2
+    (*my_seq_num) += i;
+
     return finish;
 }
-int receive_ack(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num , char file_data[] , int *cwnd , int* rwnd, unsigned int file_len, unsigned long *max_recv_ack){
-    int n ,finish = 0;
-    socklen_t size = sizeof(struct sockaddr_in);
-    
-    //Check if the packet lost , if lost -> resend 
-    reset_seg(rcv_s);
-    
-    for(int pipeCounter = 0 ; (unsigned)pipeCounter <= (*cwnd)/MAX_DATA_SIZE ; pipeCounter++){
-        if((n = recvfrom(sockfd,rcv_s,MSS,0,(struct sockaddr*)client_addr,&size))==-1){
-            //If timeout => resend 
-            //printf("Resend bytes : %ld\n",(*max_recv_ack));
-        }
-        else if(rcv_s->header.ack_num != (*my_seq_num)){
-            (*my_ack_num) = rcv_s->header.seq_num + 1;
-            (*rwnd) = rcv_s->header.rcv_win;
-            
-            if(!is_ack(rcv_s)){
-                ERR_EXIT("Server:new_connection:send_files:Invalid ACK");
-            }
-            //If the ack number is not reaching (*my_seq_num) => set new received ack
-            printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
-            if(rcv_s->header.ack_num > (*max_recv_ack)){
-                (*max_recv_ack) = rcv_s->header.ack_num;
-            }
-            if((*my_seq_num) >= file_len){
-                finish = 1;
-                break;
-            }
-        }
-        else if(rcv_s->header.ack_num ==  (*my_seq_num)){
-            (*my_ack_num) = rcv_s->header.seq_num + 1;
-            (*rwnd) = rcv_s->header.rcv_win;
-            
-            if(!is_ack(rcv_s)){
-                ERR_EXIT("Server:new_connection:send_files:Invalid ACK");
-            }
-            printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
-            
-            (*max_recv_ack) = rcv_s->header.ack_num;
-            
-            if((*my_seq_num) >= file_len)
-                finish = 1;
-            
-            
-            break;
-        }
-    }
-   
-    return finish; 
-}
-
-
-/***********************************************************************************************************************************************/
-
-
 void send_fin(int sockfd  , int* my_port, struct sockaddr_in* client_addr , seg* snd_s  , unsigned int* my_seq_num , unsigned int* my_ack_num){
     int n ;
     socklen_t size;
@@ -243,6 +186,64 @@ void send_ack(int sockfd, int* my_port, struct sockaddr_in* client_addr, seg* sn
   }
 
 
+int receive_ack(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num , char file_data[] , int *cwnd, unsigned int file_len, unsigned long *max_recv_ack){
+    int n ,finish = 0;
+    socklen_t size = sizeof(struct sockaddr_in);
+    
+    //Check if the packet lost , if lost -> resend 
+    reset_seg(rcv_s);
+    
+    for(int pipeCounter = 0 ; pipeCounter <= (*cwnd)/MSS ; pipeCounter++){
+        if((n = recvfrom(sockfd,rcv_s,MSS,0,(struct sockaddr*)client_addr,&size))==-1){
+            //If timeout => resend 
+            /*
+            reset_seg(snd_s);
+            set_seg(snd_s,*my_port,ntohs(client_addr->sin_port),(*max_recv_ack),*my_ack_num);
+            
+            //If the ack_num not fit -> resend the segement
+            for(unsigned int i=0 ; i < MAX_DATA_SIZE && *max_recv_ack + i < file_len; i++){
+               snd_s->data[i] = file_data[*max_recv_ack+i];
+            }
+            if((n = sendto(sockfd,snd_s,MSS,0,(struct sockaddr*)client_addr,size))==-1){
+                ERR_EXIT("Server:new_connection:receive_ack:sendto");
+            }*/
+            printf("Resend bytes : %ld\n",(*max_recv_ack));
+        }
+        else if(rcv_s->header.ack_num != (*my_seq_num)){
+            (*my_ack_num) = rcv_s->header.seq_num + 1;
+            
+            if(!is_ack(rcv_s)){
+                ERR_EXIT("Server:new_connection:send_files:Invalid ACK");
+            }
+            //If the ack number is not reaching (*my_seq_num) => set new received ack
+            printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
+            if(rcv_s->header.ack_num > (*max_recv_ack)){
+                (*max_recv_ack) = rcv_s->header.ack_num;
+            }
+            if((*my_seq_num) >= file_len){
+                finish = 1;
+                break;
+            }
+        }
+        else if(rcv_s->header.ack_num ==  (*my_seq_num)){
+            (*my_ack_num) = rcv_s->header.seq_num + 1;
+            
+            if(!is_ack(rcv_s)){
+                ERR_EXIT("Server:new_connection:send_files:Invalid ACK");
+            }
+            printf("\t\tReceive a packet (seq_num = %d , ack_num = %d)\n",rcv_s->header.seq_num,rcv_s->header.ack_num);
+            
+            if((*my_seq_num) >= file_len)
+                finish = 1;
+            
+            (*max_recv_ack) = rcv_s->header.ack_num;
+            
+            break;
+        }
+    }
+   
+    return finish; 
+}
 void receive_fin(int sockfd , int* my_port , struct sockaddr_in* client_addr , seg* snd_s , seg* rcv_s ,unsigned int* my_seq_num , unsigned int* my_ack_num){
       int n ;
       socklen_t size = sizeof(struct sockaddr_in);
