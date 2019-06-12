@@ -77,7 +77,7 @@ void send_files(int sockfd ,int *my_port ,struct sockaddr_in* client_addr , seg*
 
             //Start sending...
             printf("Start to send file \"%s\" to %s : %d , the file size is %ld bytes.\n",file_name,inet_ntoa(client_addr->sin_addr),ntohs(client_addr->sin_port),file_len);
-            printf("*****Slow Start*****");
+            printf("*****Slow Start*****\n");
             
 
             while(1){
@@ -200,8 +200,10 @@ int receive_ack(int sockfd , int* my_port , struct sockaddr_in* client_addr , se
                 (*dup_ack_count)++;
                 if((*dup_ack_count) == 2)
                     printf("Received three duplicate ACKs.\n");
-                if((*dup_ack_count) >= 3)
+                if((*dup_ack_count) >= 2){
                     congestion_control(state,cwnd,ssthresh,DUP_ACK,dup_ack_count);
+                    break;
+                }
             }
             else{
                 (*dup_byte) = rcv_s->header.ack_num;
@@ -266,7 +268,7 @@ void congestion_control(int* state, int* cwnd, int* ssthresh , int event , int* 
                 (*ssthresh) = (*cwnd)/2;
                 (*cwnd) = (*ssthresh) + 3* MAX_DATA_SIZE ;
                 (*state) = FAST_RECOVERY;
-                printf("*****Fast Recovery*****");
+                printf("*****Fast Recovery*****\n");
             }
             else{
                 ERR_EXIT("Server:congestion_control:invalid stete & event");
@@ -286,13 +288,13 @@ void congestion_control(int* state, int* cwnd, int* ssthresh , int event , int* 
                 (*cwnd) = MAX_DATA_SIZE;
                 (*dup_ack_count) = 0;   
                 (*state) = SLOW_START;
-	    	    printf("*****Slow Start*****");
+	    	    printf("*****Slow Start*****\n");
             }
             else if(event == DUP_ACK){
                 (*ssthresh) = (*cwnd)/2;
                 (*cwnd) = (*ssthresh) + 3* MAX_DATA_SIZE ;
                 (*state) = FAST_RECOVERY;
-                printf("*****Fast Recovery*****");
+                printf("*****Fast Recovery*****\n");
             }
             else{
                 ERR_EXIT("Server:congestion_control:invalid stete & event");
@@ -312,7 +314,7 @@ void congestion_control(int* state, int* cwnd, int* ssthresh , int event , int* 
                 (*cwnd) = MAX_DATA_SIZE;
                 (*dup_ack_count) = 0;   
                 (*state) = SLOW_START;
-	    	    printf("*****Slow Start*****");
+	    	    printf("*****Slow Start*****\n");
             }
             else if(event == DUP_ACK){
                 (*cwnd) = (*cwnd) + MAX_DATA_SIZE;

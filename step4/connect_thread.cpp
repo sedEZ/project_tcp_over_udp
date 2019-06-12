@@ -77,7 +77,7 @@ void send_files(int sockfd ,int *my_port ,struct sockaddr_in* client_addr , seg*
 
             //Start sending...
             printf("Start to send file \"%s\" to %s : %d , the file size is %ld bytes.\n",file_name,inet_ntoa(client_addr->sin_addr),ntohs(client_addr->sin_port),file_len);
-            printf("*****Slow Start*****");
+            printf("*****Slow Start*****\n");
             
 
             while(1){
@@ -276,7 +276,7 @@ void congestion_control(int* state, int* cwnd, int* ssthresh , int event){
                 (*ssthresh) = (*cwnd)/2;
                 (*cwnd) = MAX_DATA_SIZE;
                 (*state) = SLOW_START;
-		printf("*****Slow Start*****");
+		        printf("*****Slow Start*****\n");
                 
                 break;
             }
