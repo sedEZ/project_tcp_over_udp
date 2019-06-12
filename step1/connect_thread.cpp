@@ -112,7 +112,7 @@ int send_seg(int sockfd  , int* my_port, struct sockaddr_in* client_addr  , FILE
         printf("\t\tSend a packet : file \"%s\" had already sent\n",file_name);
     }
     else
-        printf("\t\tSend a packet at : %ld bytes\n",already_sent_bytes_counter);
+        printf("\t\tSend a packet at : %d bytes\n",(*my_seq_num));
     
     
     size = sizeof(struct sockaddr_in);
