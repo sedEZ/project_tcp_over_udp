@@ -114,7 +114,7 @@ void receive_file(int sockfd, int my_port , struct sockaddr_in* server_addr,char
     char file_name[MAX_FILE_NAME_LEN];
     (*my_ack_num) = 0;
     
-    sprintf(file_name,"%s_result.mp4",request_file_name);
+    sprintf(file_name,"./result/%s_%d_result.mp4",request_file_name,my_port);
     seg *snd_s = (seg*)malloc(MSS);
     seg *rcv_s = (seg*)malloc(MSS);
     

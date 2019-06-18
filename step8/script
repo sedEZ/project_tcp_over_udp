@@ -1,0 +1,6 @@
+#!/bin/bash
+
+for (( c=1; c<=200; c++ ))
+do
+    ./client $1 $2 -f 1 2 3 4 &
+done

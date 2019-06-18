@@ -88,7 +88,7 @@ void server(int port_num){
 
         //Create a thread for connection        
 		pthread_create(connections+connection_c , NULL , new_connection ,(void*)tmp);
-		connection_c = connection_c ==  MAX_NUM_CLIENTS-1 ? 0 : connection_c+1 ;
+		connection_c = ( connection_c + 1 )% MAX_NUM_CLIENTS;
         sleep(1);
 	}
 	close(socket_fd);
